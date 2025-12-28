@@ -15,14 +15,21 @@ const useSendMessage = () => {
       const res = await fetch(`/api/messages/send/${selectedConversation._id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ message }),
       });
 
       const data = await res.json();
 
       if (res.ok) {
-        // ✅ Don’t add message manually here (socket will handle it)
-        socket?.emit("sendMessage", data); // still notify receiver
+        // ✅ Add message immediately to sender's chat for instant feedback
+        setMessages((prev) => {
+          const exists = prev.some((msg) => msg._id?.toString() === data._id?.toString());
+          return exists ? prev : [...prev, data];
+        });
+        
+        // ✅ Also emit to socket for receiver (backend also handles this, but this ensures it)
+        socket?.emit("sendMessage", data);
       } else {
         console.error("Failed to send message:", data.error);
       }

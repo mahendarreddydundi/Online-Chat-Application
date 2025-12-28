@@ -6,50 +6,86 @@ const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
-	cors: {
-		origin: ["http://localhost:3000"], // or your frontend URL in production
-		methods: ["GET", "POST"],
-	},
+  cors: {
+    origin: ["http://localhost:3000"], // Your frontend
+    methods: ["GET", "POST"],
+  },
 });
 
-// 🧠 Track users: { userId: socketId }
+// 🧠 Track connected users → { userId: socketId }
 const userSocketMap = {};
 
+// Get socket id of receiver
 export const getReceiverSocketId = (receiverId) => {
-	return userSocketMap[receiverId];
+  return userSocketMap[receiverId];
 };
 
-// 🔥 Socket connection setup
+// 🔥 Socket Events
 io.on("connection", (socket) => {
-	console.log("✅ User connected:", socket.id);
+  console.log("✅ User connected:", socket.id);
 
-	const userId = socket.handshake.query.userId;
-	if (userId && userId !== "undefined") {
-		userSocketMap[userId] = socket.id;
-	}
+  // Get the userId from frontend
+  const userId = socket.handshake.query.userId;
 
-	// Send list of online users to everyone
-	io.emit("getOnlineUsers", Object.keys(userSocketMap));
+  if (userId && userId !== "undefined") {
+    // Store userId as string for consistent matching
+    userSocketMap[userId.toString()] = socket.id;
+  }
 
-	// 📨 Listen for sendMessage event (from frontend)
-	socket.on("sendMessage", (message) => {
-		const receiverSocketId = getReceiverSocketId(message.receiverId);
+  // Send updated online users list
+  io.emit("getOnlineUsers", Object.keys(userSocketMap));
 
-		if (receiverSocketId) {
-			// Send only to receiver
-			io.to(receiverSocketId).emit("newMessage", message);
-		}
+  // 📨 RECEIVE MESSAGE FROM FRONTEND
+  socket.on("sendMessage", (message) => {
+    const { senderId, receiverId } = message;
 
-		// Optional: send message back to sender for instant UI update
-		socket.emit("newMessage", message);
-	});
+    // Convert to string for consistent matching
+    const receiverSocketId = getReceiverSocketId(receiverId?.toString());
+    const senderSocketId = getReceiverSocketId(senderId?.toString());
 
-	// ❌ On disconnect
-	socket.on("disconnect", () => {
-		console.log("❌ User disconnected:", socket.id);
-		delete userSocketMap[userId];
-		io.emit("getOnlineUsers", Object.keys(userSocketMap));
-	});
+    console.log("📩 Message received:", message);
+
+    // Send message to receiver
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("newMessage", message);
+    }
+
+    // Send back to sender (to update sender UI instantly)
+    if (senderSocketId) {
+      io.to(senderSocketId).emit("newMessage", message);
+    }
+  });
+
+  // ⌨️ TYPING INDICATOR
+  socket.on("typing", ({ receiverId, senderId }) => {
+    const receiverSocketId = getReceiverSocketId(receiverId?.toString());
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("typing", { senderId });
+    }
+  });
+
+  socket.on("stopTyping", ({ receiverId, senderId }) => {
+    const receiverSocketId = getReceiverSocketId(receiverId?.toString());
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("stopTyping", { senderId });
+    }
+  });
+
+  // ❌ On user disconnect
+  socket.on("disconnect", () => {
+    console.log("❌ User disconnected:", socket.id);
+
+    // Remove the socket from map
+    for (const user in userSocketMap) {
+      if (userSocketMap[user] === socket.id) {
+        delete userSocketMap[user];
+        break;
+      }
+    }
+
+    // Send updated list
+    io.emit("getOnlineUsers", Object.keys(userSocketMap));
+  });
 });
 
 export { app, io, server };

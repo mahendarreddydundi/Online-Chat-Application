@@ -12,9 +12,9 @@ export const SocketContextProvider = ({ children }) => {
   const { authUser } = useAuthContext();
 
   useEffect(() => {
-    if (authUser) {
+    if (authUser && authUser._id) {
       const newSocket = io("http://localhost:5000", {
-        query: { userId: authUser._id },
+        query: { userId: authUser._id.toString() },
       });
 
       setSocket(newSocket);
@@ -23,8 +23,19 @@ export const SocketContextProvider = ({ children }) => {
         console.log("✅ Socket connected:", newSocket.id);
       });
 
+      // Online users
       newSocket.on("getOnlineUsers", (users) => {
         setOnlineUsers(users);
+      });
+
+      // 🔥 Listen for messages from backend
+      newSocket.on("newMessage", (message) => {
+        console.log("📩 New message received:", message);
+
+        // Dispatch custom event
+        window.dispatchEvent(
+          new CustomEvent("messageReceived", { detail: message })
+        );
       });
 
       newSocket.on("disconnect", () => {
@@ -41,6 +52,7 @@ export const SocketContextProvider = ({ children }) => {
         setSocket(null);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authUser]);
 
   return (
